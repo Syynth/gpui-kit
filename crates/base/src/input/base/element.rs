@@ -364,6 +364,80 @@ pub(super) fn cursor_surrounding_padding(
 /// `0` outside code-editor mode. Inside it, `None` is half the viewport
 /// (floored at [`BOTTOM_MARGIN_ROWS`] line-heights); `Some(n)` is exactly
 /// `n` line-heights.
+/// VENDOR EDIT — splice inlays anchored inside this sub-line into its text
+/// and runs.
+///
+/// Returns the display text, the runs covering it, and the inlays as
+/// `(buffer offset within the sub-line, inserted byte length)` for
+/// `LineLayout`'s coordinate translation.
+fn splice_inlays(
+    inlays: &[crate::input::Inlay],
+    line_start: usize,
+    text: SharedString,
+    runs: Vec<TextRun>,
+    default_run: &TextRun,
+) -> (SharedString, Vec<TextRun>, Vec<(usize, usize)>) {
+    let line_len = text.len();
+    let hits: Vec<&crate::input::Inlay> = inlays
+        .iter()
+        .filter(|i| i.offset >= line_start && i.offset <= line_start + line_len)
+        .collect();
+    if hits.is_empty() {
+        return (text, runs, Vec::new());
+    }
+
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut out_runs: Vec<TextRun> = Vec::with_capacity(runs.len() + hits.len());
+    let mut table = Vec::with_capacity(hits.len());
+    let mut cursor = 0usize;
+    // Runs are consumed in step with the buffer text they cover.
+    let mut pending = runs.into_iter().collect::<std::collections::VecDeque<_>>();
+    let mut take_runs = |upto: usize, cursor: usize, out_runs: &mut Vec<TextRun>| {
+        let mut want = upto - cursor;
+        while want > 0 {
+            let Some(mut run) = pending.pop_front() else {
+                break;
+            };
+            if run.len <= want {
+                want -= run.len;
+                out_runs.push(run);
+            } else {
+                let mut head = run.clone();
+                head.len = want;
+                run.len -= want;
+                pending.push_front(run);
+                out_runs.push(head);
+                want = 0;
+            }
+        }
+    };
+
+    for inlay in hits {
+        let at = inlay.offset - line_start;
+        if at > cursor {
+            out.push_str(&text[cursor..at]);
+            take_runs(at, cursor, &mut out_runs);
+            cursor = at;
+        }
+        table.push((at, inlay.text.len()));
+        out.push_str(&inlay.text);
+        let mut run = default_run.clone();
+        run.len = inlay.text.len();
+        if let Some(color) = inlay.style.color {
+            run.color = color;
+        }
+        run.background_color = inlay.style.background_color;
+        out_runs.push(run);
+    }
+    if cursor < line_len {
+        out.push_str(&text[cursor..]);
+        take_runs(line_len, cursor, &mut out_runs);
+    }
+    out_runs.extend(pending);
+
+    (out.into(), out_runs, table)
+}
+
 fn empty_bottom_height(
     is_code_editor: bool,
     override_rows: Option<usize>,
@@ -802,6 +876,49 @@ impl<M: InputModeKind> TextElement<M> {
         };
 
         Self::layout_match_range(symbol_range, last_layout, bounds)
+    }
+
+    /// VENDOR EDIT — geometry for the swatch drawn inside each inlay chip.
+    ///
+    /// `LineLayout::inlay_x_bounds` gives the chip's own x span, so the square
+    /// is placed relative to the CHIP rather than to any buffer text — which
+    /// is what makes it drawing-in-a-widget rather than decoration-on-text.
+    fn layout_inlay_swatches(
+        &self,
+        last_layout: &LastLayout,
+        bounds: &Bounds<Pixels>,
+        cx: &mut App,
+    ) -> Vec<(Bounds<Pixels>, Hsla)> {
+        let state = self.state.read(cx);
+        let inlays = state.extras.inlays();
+        if inlays.is_empty() {
+            return Vec::new();
+        }
+        let line_height = last_layout.line_height;
+        let mut out = Vec::new();
+        let mut y = bounds.origin.y + last_layout.visible_top;
+        for (vi, line_layout) in last_layout.lines.iter().enumerate() {
+            let Some(&line_start) = last_layout.visible_line_byte_offsets.get(vi) else {
+                break;
+            };
+            for inlay in inlays {
+                let Some(swatch) = inlay.swatch else { continue };
+                if inlay.offset < line_start {
+                    continue;
+                }
+                let Some((x0, _x1)) = line_layout.inlay_x_bounds(inlay.offset - line_start) else {
+                    continue;
+                };
+                let size = line_height * 0.5;
+                let origin = point(
+                    bounds.origin.x + last_layout.line_number_width + x0 + px(2.),
+                    y + (line_height - size) / 2.,
+                );
+                out.push((Bounds::new(origin, gpui::size(size, size)), swatch));
+            }
+            y += line_layout.size(line_height).height;
+        }
+        out
     }
 
     fn layout_document_colors(
@@ -1343,6 +1460,10 @@ impl<M: InputModeKind> TextElement<M> {
             return vec![line_layout];
         }
 
+        // An inlay borrows the document's font and metrics; only colour is
+        // its own. Without any run there is no text to inlay into.
+        let inlay_run_template = runs.first().cloned();
+
         let mut lines = Vec::with_capacity(last_layout.visible_buffer_lines.len());
         // run_offset tracks position in the runs vec coordinate space (only visible line bytes).
         // This is separate from the visible_text offset because runs from highlight_lines
@@ -1360,6 +1481,7 @@ impl<M: InputModeKind> TextElement<M> {
 
             let mut wrapped_lines: SmallVec<[ShapedLine; 1]> = SmallVec::with_capacity(1);
             let mut line_has_background = false;
+            let mut inlays_for_line: Vec<(usize, usize)> = Vec::new();
 
             for range in &line_item.wrapped_lines {
                 let line_runs = runs_for_range(runs, run_offset, &range);
@@ -1376,6 +1498,22 @@ impl<M: InputModeKind> TextElement<M> {
                 let sub_line: SharedString = line_text[range.clone()].to_string().into();
                 let line_runs =
                     align_runs_to_char_boundaries(&sub_line, &line_runs).unwrap_or(line_runs);
+                // VENDOR EDIT — splice in-text inlays into the shaped line.
+                // The shaped text is what the reader sees; the buffer is what
+                // the cursor addresses, and they diverge exactly here.
+                let line_start = last_layout.visible_line_byte_offsets[vi] + range.start;
+                let (sub_line, line_runs, line_inlays) = match &inlay_run_template {
+                    Some(template) => splice_inlays(
+                        state.extras.inlays(),
+                        line_start,
+                        sub_line,
+                        line_runs,
+                        template,
+                    ),
+                    None => (sub_line, line_runs, Vec::new()),
+                };
+                inlays_for_line.extend(line_inlays);
+
                 let shaped_line = window
                     .text_system()
                     .shape_line(sub_line, font_size, &line_runs, None);
@@ -1397,6 +1535,7 @@ impl<M: InputModeKind> TextElement<M> {
             };
 
             let line_layout = LineLayout::new()
+                .with_inlays(inlays_for_line)
                 .lines(wrapped_lines)
                 .wrap_indent(wrap_indent)
                 .with_background(line_has_background)
@@ -1580,6 +1719,8 @@ pub(super) struct PrepaintState {
     hover_highlight_path: Option<Path<Pixels>>,
     search_match_paths: Vec<(Path<Pixels>, bool)>,
     document_color_paths: Vec<(Path<Pixels>, Hsla)>,
+    /// VENDOR EDIT — quads drawn INSIDE inlay chips (`Inlay::swatch`).
+    inlay_swatches: Vec<(Bounds<Pixels>, Hsla)>,
     hover_definition_hitbox: Option<Hitbox>,
     indent_guides_path: Option<Path<Pixels>>,
     bounds: Bounds<Pixels>,
@@ -1996,6 +2137,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let hover_highlight_path = self.layout_hover_highlight(&last_layout, &mut bounds, cx);
         let document_color_paths =
             self.layout_document_colors(&document_colors, &last_layout, &bounds, cx);
+        let inlay_swatches = self.layout_inlay_swatches(&last_layout, &bounds, cx);
 
         let state = self.state.read(cx);
         let line_numbers = if state.mode.line_number() {
@@ -2076,6 +2218,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             hover_highlight_path,
             hover_definition_hitbox,
             document_color_paths,
+            inlay_swatches,
             indent_guides_path,
             fold_icon_layout,
             ghost_first_line,
@@ -2233,6 +2376,12 @@ impl<M: InputModeKind> Element for TextElement<M> {
         for (path, color) in prepaint.document_color_paths.iter() {
             let color = if disabled { color.opacity(0.5) } else { *color };
             window.paint_path(path.clone(), color);
+        }
+
+        // VENDOR EDIT — a chip's own drawing, inside its bounds.
+        for (rect, color) in prepaint.inlay_swatches.iter() {
+            let color = if disabled { color.opacity(0.5) } else { *color };
+            window.paint_quad(gpui::fill(*rect, color));
         }
 
         // Paint text with inline completion ghost line support

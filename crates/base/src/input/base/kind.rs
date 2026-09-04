@@ -75,6 +75,11 @@ impl MultiLineMode for EditorMode {}
 /// during an edit. Adding a field an editor renders belongs here and leaves
 /// the engine's callbacks alone.
 pub trait InputExtras: Default + 'static {
+    /// VENDOR EDIT — in-text inlays. Only the code-editor kind has any.
+    fn inlays(&self) -> &[Inlay] {
+        &[]
+    }
+
     /// Decoration ranges to paint, innermost collection first.
     fn decoration_layers(&self) -> Vec<&[TextDecoration]> {
         Vec::new()
@@ -323,7 +328,28 @@ impl InputModeKind for TextareaMode {
 // language features it dispatches to.
 
 /// What a code editor adds on top of multi-line text: language features.
+/// VENDOR EDIT — an in-text inlay: text the editor draws inside a line
+/// that the buffer does not contain. The unit CodeMirror calls a widget.
+#[derive(Debug, Clone)]
+pub struct Inlay {
+    /// Where in the buffer the inlay is anchored.
+    pub offset: usize,
+    pub text: gpui::SharedString,
+    pub style: gpui::HighlightStyle,
+    /// A colour swatch drawn INSIDE the chip, left of its text — a filled
+    /// quad painted at the inlay's own pixel bounds, not a glyph.
+    pub swatch: Option<gpui::Hsla>,
+}
+
+/// Called when a click lands inside an inlay, with the buffer offset the
+/// inlay is anchored at.
+pub type InlayClickHandler = std::rc::Rc<dyn Fn(usize, &mut gpui::Window, &mut gpui::App)>;
+
 pub struct EditorExtras {
+    /// VENDOR EDIT — see [`Inlay`]. Sorted by offset.
+    pub(crate) inlays: Vec<Inlay>,
+    /// VENDOR EDIT — see [`InlayClickHandler`].
+    pub(crate) on_inlay_click: Option<InlayClickHandler>,
     pub(crate) lsp: Lsp,
     pub(crate) decorations: DecorationCollections,
     pub(crate) inline_completion: InlineCompletion,
@@ -336,6 +362,8 @@ pub struct EditorExtras {
 impl Default for EditorExtras {
     fn default() -> Self {
         Self {
+            inlays: Vec::new(),
+            on_inlay_click: None,
             lsp: Lsp::default(),
             decorations: DecorationCollections::default(),
             inline_completion: InlineCompletion::default(),

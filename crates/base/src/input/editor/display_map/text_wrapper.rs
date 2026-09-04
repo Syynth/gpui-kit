@@ -531,6 +531,14 @@ pub(crate) struct LineLayout {
     /// Whether any run of this line carries a background color, so [`Self::paint_background`]
     /// can skip the glyph walk for the common case of a line without highlights.
     has_background: bool,
+    /// VENDOR EDIT — in-text inlays: `(buffer offset within this line, byte
+    /// length of the inserted text)`, sorted and non-overlapping.
+    ///
+    /// The shaped line contains text the BUFFER does not, so display and
+    /// buffer byte offsets diverge. Everything outside this struct keeps
+    /// working in buffer coordinates — `len` stays the buffer length — and
+    /// only the x-mapping functions translate.
+    inlays: Vec<(usize, usize)>,
 }
 
 impl LineLayout {
@@ -543,7 +551,84 @@ impl LineLayout {
             whitespace_chars: Vec::new(),
             whitespace_indicators: None,
             has_background: false,
+            inlays: Vec::new(),
         }
+    }
+
+    /// Record the inlays spliced into this line's shaped text.
+    pub(crate) fn with_inlays(mut self, inlays: Vec<(usize, usize)>) -> Self {
+        self.inlays = inlays;
+        self
+    }
+
+    /// Buffer offset -> display offset: every inlay at or before `offset`
+    /// pushes it right by its own length.
+    fn to_display(&self, offset: usize) -> usize {
+        self.inlays
+            .iter()
+            .filter(|(at, _)| *at <= offset)
+            .map(|(_, len)| *len)
+            .sum::<usize>()
+            + offset
+    }
+
+    /// The inlay a DISPLAY offset falls inside, as its buffer anchor.
+    fn inlay_hit(&self, display: usize) -> Option<usize> {
+        let mut shift = 0;
+        for (at, len) in &self.inlays {
+            let start = at + shift;
+            if display <= start {
+                return None;
+            }
+            if display < start + len {
+                return Some(*at);
+            }
+            shift += len;
+        }
+        None
+    }
+
+    /// The x span an inlay occupies on screen, for painting inside it.
+    pub(crate) fn inlay_x_bounds(&self, anchor: usize) -> Option<(Pixels, Pixels)> {
+        let line = self.wrapped_lines.first()?;
+        let mut shift = 0;
+        for (at, len) in &self.inlays {
+            if *at == anchor {
+                let start = at + shift;
+                return Some((line.x_for_index(start), line.x_for_index(start + len)));
+            }
+            shift += len;
+        }
+        None
+    }
+
+    /// Which inlay, if any, the position lands in.
+    pub(crate) fn inlay_at_position(
+        &self,
+        pos: Point<Pixels>,
+        last_layout: &LastLayout,
+    ) -> Option<usize> {
+        let (i, offset, x) = self.wrapped_line_at(pos, last_layout)?;
+        let display = self.wrapped_lines[i].index_for_x(x)?;
+        self.inlay_hit(display).map(|at| offset + at)
+    }
+
+    /// Display offset -> buffer offset. An x that lands INSIDE an inlay
+    /// resolves to the buffer position it is anchored at — an inlay is not
+    /// text you can put a cursor in.
+    fn to_buffer(&self, display: usize) -> usize {
+        let mut shift = 0;
+        for (at, len) in &self.inlays {
+            let inlay_display_start = at + shift;
+            if display <= inlay_display_start {
+                break;
+            }
+            if display < inlay_display_start + len {
+                return *at;
+            }
+            shift += len;
+        }
+        display.saturating_sub(shift)
     }
 
     /// Record whether any run of this line carries a background color.
@@ -650,9 +735,8 @@ impl LineLayout {
             };
 
             if matches {
-                let x = line.x_for_index(offset.saturating_sub(acc_len))
-                    + x_offset
-                    + self.line_indent(i);
+                let local = self.to_display(offset.saturating_sub(acc_len));
+                let x = line.x_for_index(local) + x_offset + self.line_indent(i);
                 return Some(point(x, offset_y));
             }
 
@@ -678,7 +762,7 @@ impl LineLayout {
         for (i, line) in self.wrapped_lines.iter().enumerate() {
             let line_indent = self.line_indent(i);
             if x <= line_indent + line.width {
-                return acc_len + line.closest_index_for_x(x - line_indent);
+                return acc_len + self.to_buffer(line.closest_index_for_x(x - line_indent));
             }
             acc_len += line.len;
         }
@@ -732,7 +816,8 @@ impl LineLayout {
         let ix = line.closest_index_for_x(x);
         let line_end_affinity = i + 1 < self.wrapped_lines.len() && ix == line.len;
 
-        Some((offset + ix, line_end_affinity))
+        // VENDOR EDIT: `ix` is a DISPLAY offset.
+        Some((offset + self.to_buffer(ix), line_end_affinity))
     }
 
     pub(crate) fn index_for_position(
@@ -742,7 +827,8 @@ impl LineLayout {
     ) -> Option<usize> {
         let (i, offset, x) = self.wrapped_line_at(pos, last_layout)?;
 
-        Some(offset + self.wrapped_lines[i].index_for_x(x)?)
+        // VENDOR EDIT: display offset -> buffer offset.
+        Some(offset + self.to_buffer(self.wrapped_lines[i].index_for_x(x)?))
     }
 
     pub(crate) fn size(&self, line_height: Pixels) -> Size<Pixels> {

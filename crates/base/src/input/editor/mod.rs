@@ -1,4 +1,6 @@
-use gpui::{App, Div, Entity, InteractiveElement as _, IntoElement, RenderOnce, Stateful, Window};
+use gpui::{
+    App, Context, Div, Entity, InteractiveElement as _, IntoElement, RenderOnce, Stateful, Window,
+};
 
 use super::{EditorMode, InputBaseState, InputModeKind};
 
@@ -76,6 +78,14 @@ impl InputModeKind for EditorMode {
         window: &mut Window,
         cx: &mut gpui::Context<InputBaseState<Self>>,
     ) -> bool {
+        // VENDOR EDIT — a click inside an inlay belongs to the inlay, not to
+        // the text under it. Consumes the click when a handler takes it.
+        if let Some(anchor) = state.inlay_at_mouse_position(event.position) {
+            if let Some(handler) = state.extras.on_inlay_click.clone() {
+                handler(anchor, window, cx);
+                return true;
+            }
+        }
         state.handle_click_hover_definition(event, offset, window, cx)
     }
 
@@ -169,6 +179,25 @@ impl InputModeKind for EditorMode {
 }
 
 impl EditorState {
+    /// VENDOR EDIT — set the in-text inlays this editor draws.
+    ///
+    /// Sorted here so the layout and the offset mapping can both assume
+    /// order. Text inside an inlay is not addressable: a click that lands in
+    /// one resolves to the buffer offset it is anchored at.
+    pub fn set_inlays(&mut self, mut inlays: Vec<crate::input::Inlay>, cx: &mut Context<Self>) {
+        inlays.sort_by_key(|i| i.offset);
+        self.extras.inlays = inlays;
+        cx.notify();
+    }
+
+    /// VENDOR EDIT — called when a click lands inside an inlay.
+    pub fn on_inlay_click(
+        &mut self,
+        handler: impl Fn(usize, &mut Window, &mut gpui::App) + 'static,
+    ) {
+        self.extras.on_inlay_click = Some(std::rc::Rc::new(handler));
+    }
+
     /// The LSP providers and their cached results.
     ///
     /// This exists on the editor alone: an ordinary input or textarea has no
@@ -205,6 +234,10 @@ impl RenderOnce for Editor {
 
 /// What a code editor exposes to the renderer. See [`crate::input::InputExtras`].
 impl crate::input::InputExtras for super::EditorExtras {
+    fn inlays(&self) -> &[crate::input::Inlay] {
+        &self.inlays
+    }
+
     fn decoration_layers(&self) -> Vec<&[super::TextDecoration]> {
         self.decorations.iter().collect()
     }

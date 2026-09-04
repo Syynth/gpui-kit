@@ -2147,6 +2147,26 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// end of that row rather than at the start of the next one. Callers that place or extend a
     /// selection must pass it on, or clicking past the last glyph of a wrapped row leaves a
     /// caret one row below the pointer.
+    /// VENDOR EDIT — the inlay under `position`, as its buffer anchor.
+    ///
+    /// Mirrors [`Self::index_for_mouse_position`]'s traversal; an inlay is
+    /// only hit-testable through the same line-layout walk.
+    pub(crate) fn inlay_at_mouse_position(&self, position: Point<Pixels>) -> Option<usize> {
+        let (bounds, last_layout) = (self.last_bounds.as_ref()?, self.last_layout.as_ref()?);
+        let inner_position =
+            position - bounds.origin - point(last_layout.line_number_width, px(0.));
+        let mut y_offset = last_layout.visible_top;
+        for (vi, line_layout) in last_layout.lines.iter().enumerate() {
+            let line_start_offset = *last_layout.visible_line_byte_offsets.get(vi)?;
+            let pos = inner_position - point(px(0.), y_offset);
+            if let Some(local) = line_layout.inlay_at_position(pos, last_layout) {
+                return Some(line_start_offset + local);
+            }
+            y_offset += line_layout.size(last_layout.line_height).height;
+        }
+        None
+    }
+
     pub(crate) fn index_for_mouse_position(&self, position: Point<Pixels>) -> (usize, bool) {
         // If the text is empty, always return 0
         if self.text.len() == 0 {
