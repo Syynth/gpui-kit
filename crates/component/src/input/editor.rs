@@ -7,7 +7,7 @@ use gpui::{
 
 use super::{EditorState, Input};
 use crate::native_menu::NativeMenu;
-use crate::{ActiveTheme as _, RoleOverride, StyledExt as _};
+use crate::{ActiveTheme as _, RoleOverride, Sizable as _, StyledExt as _};
 
 /// A code editor takes its rows from the font, so that a smaller or larger
 /// font keeps its leading in proportion.
@@ -18,6 +18,8 @@ const EDITOR_LINE_HEIGHT: f32 = 1.5;
 pub struct Editor {
     state: Entity<EditorState>,
     style: StyleRefinement,
+    /// VENDOR EDIT: drives `Input`'s vertical padding (`Size::input_py()`).
+    size: crate::Size,
     height: Option<DefiniteLength>,
     appearance: bool,
     bordered: bool,
@@ -38,6 +40,7 @@ impl Editor {
         Self {
             state: state.clone(),
             style: StyleRefinement::default(),
+            size: crate::Size::default(),
             height: None,
             appearance: true,
             bordered: true,
@@ -108,6 +111,13 @@ impl Editor {
     }
 }
 
+impl crate::Sizable for Editor {
+    fn with_size(mut self, size: impl Into<crate::Size>) -> Self {
+        self.size = size.into();
+        self
+    }
+}
+
 impl Styled for Editor {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
@@ -117,6 +127,7 @@ impl Styled for Editor {
 impl RenderOnce for Editor {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         Input::from_state(self.state.clone())
+            .with_size(self.size)
             // Source code wants a monospace font at a code size, and rows that
             // follow that size. These come first so that a text style set on
             // this editor refines over them: `.text_sm()` and `.font_family()`
