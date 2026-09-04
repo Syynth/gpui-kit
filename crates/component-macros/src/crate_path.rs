@@ -11,7 +11,9 @@ use quote::quote;
 pub(crate) fn gpui() -> syn::Result<TokenStream> {
     match crate_name("gpui-kit") {
         Ok(found) => Ok(found_crate_path(found)),
+        // VENDOR EDIT: accept Zed's own `gpui` package too.
         Err(kit_error) => crate_name("gpui-pre")
+            .or_else(|_| crate_name("gpui"))
             .map(found_crate_path)
             .map_err(|gpui_error| {
                 syn::Error::new(
