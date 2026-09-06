@@ -2106,6 +2106,17 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.last_layout.as_ref().map(|l| l.line_height)
     }
 
+    /// How many rows the text occupies once soft wrap is applied — the
+    /// buffer's line count when wrapping is off or no layout has run yet.
+    ///
+    /// A host that sizes an editor to its content (a stacked manuscript, a
+    /// result card) needs this to size it to the rows it will actually
+    /// draw; with wrapping on, the buffer's line count undersizes it and the
+    /// editor starts scrolling inside its box.
+    pub fn wrap_row_count(&self) -> usize {
+        self.display_map.wrap_row_count()
+    }
+
     /// Returns the current selection as a byte range into the text.
     ///
     /// The range is empty (`start == end`) when no text is selected; in
