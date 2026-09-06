@@ -291,6 +291,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) searchable: bool,
     pub(super) replaceable: bool,
     pub(super) soft_wrap: bool,
+    pub(super) min_line_number_digits: usize,
     pub(super) wrapping_indent: WrappingIndent,
     pub(super) scroll_beyond_last_line: Option<usize>,
     pub(super) cursor_surrounding_lines: Option<usize>,
@@ -620,6 +621,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             searchable: false,
             replaceable: true,
             soft_wrap: true,
+            min_line_number_digits: 0,
             wrapping_indent: WrappingIndent::default(),
             scroll_beyond_last_line: None,
             cursor_surrounding_lines: None,
@@ -5135,6 +5137,21 @@ impl InputBaseState<crate::input::InputMode> {
 /// single-line input nor anything else.
 impl<M: crate::input::MultiLineMode> InputBaseState<M> {
     /// Set this input is searchable, default is false (Default true for Code Editor).
+    /// Reserve gutter room for at least this many line-number digits, so
+    /// editors over files of different lengths shown side by side (or
+    /// stacked) keep their text columns aligned. `0` (the default) sizes
+    /// the gutter to the file.
+    pub fn min_line_number_digits(mut self, digits: usize) -> Self {
+        self.min_line_number_digits = digits;
+        self
+    }
+
+    /// See [`Self::min_line_number_digits`].
+    pub fn set_min_line_number_digits(&mut self, digits: usize, cx: &mut Context<Self>) {
+        self.min_line_number_digits = digits;
+        cx.notify();
+    }
+
     #[doc(hidden)]
     pub fn searchable(mut self, searchable: bool) -> Self {
         self.searchable = searchable;

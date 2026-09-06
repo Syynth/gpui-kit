@@ -1061,7 +1061,8 @@ impl<M: InputModeKind> TextElement<M> {
         let total_lines = text.lines_len();
         // One extra column beyond the widest line number, so right-aligned
         // numbers keep a gap from the left edge.
-        let line_number_len = total_lines.max(1).ilog10() as usize + 2;
+        let line_number_len = (total_lines.max(1).ilog10() as usize + 2)
+            .max(state.min_line_number_digits + 1);
 
         let mut line_number_width = if state.mode.line_number() {
             let empty_line_number = window.text_system().shape_line(
