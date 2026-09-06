@@ -2651,9 +2651,16 @@ impl<M: InputModeKind> InputBaseState<M> {
             return None;
         };
 
+        // `line_and_position_for_offset` answers in content space; on screen
+        // the content sits at the element's origin shifted by the scroll
+        // offset (negative once scrolled), exactly as the caret is placed in
+        // `element.rs`. Without the shift every popover anchored here — hover,
+        // diagnostic, completion — drifted by however far the editor had
+        // scrolled, on both axes.
+        let scroll = self.scroll_handle.offset();
         Some(Bounds::from_corners(
-            last_bounds.origin + start_pos,
-            last_bounds.origin + end_pos + point(px(0.), last_layout.line_height),
+            last_bounds.origin + start_pos + scroll,
+            last_bounds.origin + end_pos + scroll + point(px(0.), last_layout.line_height),
         ))
     }
 
