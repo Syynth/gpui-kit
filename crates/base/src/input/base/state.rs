@@ -292,6 +292,8 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) replaceable: bool,
     pub(super) soft_wrap: bool,
     pub(super) min_line_number_digits: usize,
+    pub(super) active_line_highlight: bool,
+    pub(super) line_number_color: Option<gpui::Hsla>,
     pub(super) wrapping_indent: WrappingIndent,
     pub(super) scroll_beyond_last_line: Option<usize>,
     pub(super) cursor_surrounding_lines: Option<usize>,
@@ -622,6 +624,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             replaceable: true,
             soft_wrap: true,
             min_line_number_digits: 0,
+            active_line_highlight: true,
+            line_number_color: None,
             wrapping_indent: WrappingIndent::default(),
             scroll_beyond_last_line: None,
             cursor_surrounding_lines: None,
@@ -5156,6 +5160,34 @@ impl<M: crate::input::MultiLineMode> InputBaseState<M> {
     /// See [`Self::min_line_number_digits`].
     pub fn set_min_line_number_digits(&mut self, digits: usize, cx: &mut Context<Self>) {
         self.min_line_number_digits = digits;
+        cx.notify();
+    }
+
+    /// Whether the caret's line is painted with the theme's active-line
+    /// band (default true). The band's colour is theme-wide; this lets one
+    /// editor — a reading surface, say — go without it.
+    pub fn active_line_highlight(mut self, highlight: bool) -> Self {
+        self.active_line_highlight = highlight;
+        self
+    }
+
+    /// See [`Self::active_line_highlight`].
+    pub fn set_active_line_highlight(&mut self, highlight: bool, cx: &mut Context<Self>) {
+        self.active_line_highlight = highlight;
+        cx.notify();
+    }
+
+    /// Paint every line number in this colour, the caret's line included,
+    /// instead of the theme's muted and foreground colours. `None` (the
+    /// default) follows the theme.
+    pub fn line_number_color(mut self, color: Option<gpui::Hsla>) -> Self {
+        self.line_number_color = color;
+        self
+    }
+
+    /// See [`Self::line_number_color`].
+    pub fn set_line_number_color(&mut self, color: Option<gpui::Hsla>, cx: &mut Context<Self>) {
+        self.line_number_color = color;
         cx.notify();
     }
 

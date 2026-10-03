@@ -2146,7 +2146,9 @@ impl<M: InputModeKind> Element for TextElement<M> {
             let other_line_runs = vec![TextRun {
                 len: line_number_len,
                 font: style.font(),
-                color: state.editor_style.muted_foreground,
+                color: state
+                    .line_number_color
+                    .unwrap_or(state.editor_style.muted_foreground),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -2154,7 +2156,9 @@ impl<M: InputModeKind> Element for TextElement<M> {
             let current_line_runs = vec![TextRun {
                 len: line_number_len,
                 font: style.font(),
-                color: state.editor_style.foreground,
+                color: state
+                    .line_number_color
+                    .unwrap_or(state.editor_style.foreground),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -2238,7 +2242,15 @@ impl<M: InputModeKind> Element for TextElement<M> {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let (focus_handle, show_cursor, disabled, selected_range, editor_style, editor_paddings) = {
+        let (
+            focus_handle,
+            show_cursor,
+            disabled,
+            selected_range,
+            editor_style,
+            editor_paddings,
+            active_line_highlight,
+        ) = {
             let state = self.state.read(cx);
             (
                 state.focus_handle.clone(),
@@ -2247,6 +2259,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 state.selected_range,
                 state.editor_style.clone(),
                 state.editor_paddings,
+                state.active_line_highlight,
             )
         };
         let focused = focus_handle.is_focused(window);
@@ -2266,6 +2279,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let invisible_top_padding = prepaint.last_layout.visible_top;
         let active_line_color = editor_style
             .editor_active_line
+            .filter(|_| active_line_highlight)
             .map(|color| if disabled { color.opacity(0.5) } else { color });
         let editor_background = if disabled {
             editor_style.background.opacity(0.5)
