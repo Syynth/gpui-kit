@@ -1,7 +1,7 @@
 use std::{ops::Range, rc::Rc};
 
 use gpui::{
-    AnyElement, App, AppContext as _, AvailableSpace, Bounds, Element, ElementId, Entity,
+    AnyElement, App, AppContext as _, AvailableSpace, Bounds, Element, ElementId, Entity, Global,
     InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels,
     Render, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, deferred, div, point,
     px,
@@ -11,6 +11,30 @@ use crate::{
     StyledExt, ThemeStyled as _,
     input::{EditorState, popovers::render_markdown},
 };
+
+/// An app's own drawing of hover content, in place of the kit's generic
+/// markdown view, and how it wants the card styled. Installed once, for
+/// every editor in the app, with [`set_hover_renderer`].
+///
+/// A language's hover is rarely generic markdown: a kind, a signature, a
+/// "defined in" link the app knows how to follow. The kit cannot know that
+/// shape, so it hands the hover to the app and keeps only the placement,
+/// the dismissal and the card's frame.
+#[derive(Clone)]
+pub struct HoverRenderer {
+    /// Draws the card's content from the hover the provider answered.
+    pub render: Rc<dyn Fn(&lsp_types::Hover, &mut Window, &mut App) -> AnyElement>,
+    /// Refines the card itself — padding, radius, shadow — over the kit's
+    /// own popover chrome.
+    pub card: StyleRefinement,
+}
+
+impl Global for HoverRenderer {}
+
+/// Draw every editor's hover content with `renderer` from now on.
+pub fn set_hover_renderer(renderer: HoverRenderer, cx: &mut App) {
+    cx.set_global(renderer);
+}
 
 pub struct HoverPopover {
     editor: Entity<EditorState>,
@@ -37,7 +61,18 @@ impl HoverPopover {
 }
 
 impl Render for HoverPopover {
-    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        if let Some(renderer) = cx.try_global::<HoverRenderer>().cloned() {
+            let hover = self.hover.clone();
+            let mut popover = Popover::new(
+                "hover-popover",
+                self.editor.clone(),
+                self.symbol_range.clone(),
+                move |window, cx| (renderer.render)(&hover, window, cx),
+            );
+            *popover.style() = renderer.card;
+            return popover.into_any_element();
+        }
         let contents = match self.hover.contents.clone() {
             lsp_types::HoverContents::Scalar(scalar) => match scalar {
                 lsp_types::MarkedString::String(s) => s,

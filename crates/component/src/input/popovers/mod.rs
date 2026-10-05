@@ -7,6 +7,7 @@ pub(crate) use code_action_menu::*;
 pub(crate) use completion_menu::*;
 pub(crate) use diagnostic_popover::*;
 pub(crate) use hover_popover::*;
+pub use hover_popover::{HoverRenderer, set_hover_renderer};
 
 use gpui::{
     App, Div, ElementId, InteractiveElement as _, SharedString, Stateful, StyleRefinement,
