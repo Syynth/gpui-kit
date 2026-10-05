@@ -627,7 +627,22 @@ impl RenderOnce for Input {
                 )
             })
             .relative()
-            .children(overlays.floating)
+            // The floating pop-ups (completion, code actions, hover,
+            // diagnostic) position themselves; laid out as flex children
+            // of this row they each took a `gap`, so the editor narrowed
+            // by one gap whenever one appeared and lines near the edge
+            // re-wrapped under the pointer. One absolute, sizeless layer
+            // keeps them out of the row's layout entirely.
+            .when(!overlays.floating.is_empty(), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_0()
+                        .children(overlays.floating),
+                )
+            })
             .render(window, cx)
     }
 }
