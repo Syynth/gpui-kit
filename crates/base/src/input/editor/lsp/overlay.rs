@@ -118,6 +118,7 @@ impl InputBaseState<EditorMode> {
     }
 
     pub fn clear_diagnostic_popover(&mut self, cx: &mut Context<Self>) {
+        self.pointer_diagnostics = Rc::from([]);
         if self.diagnostic_popover.take().is_some() {
             cx.notify();
         }

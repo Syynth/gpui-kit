@@ -55,6 +55,8 @@ pub(crate) struct LspOverlays {
     code_action_signature: OverlaySignature,
     hover_signature: Option<std::ops::Range<usize>>,
     diagnostic_signature: Option<std::rc::Rc<gpui_base::input::DiagnosticEntry>>,
+    /// The diagnostics an app-drawn card was last built with, by identity.
+    card_diagnostics: Option<std::rc::Rc<[gpui_base::input::DiagnosticEntry]>>,
 }
 
 /// What the state read out of the engine for one sync pass.
@@ -68,6 +70,8 @@ pub(crate) struct LspSnapshot {
     code_action: OverlaySignature,
     hover: Option<std::ops::Range<usize>>,
     diagnostic: Option<std::rc::Rc<gpui_base::input::DiagnosticEntry>>,
+    /// Every diagnostic covering the pointer.
+    pointer: std::rc::Rc<[gpui_base::input::DiagnosticEntry]>,
     cursor: usize,
 }
 
@@ -77,6 +81,7 @@ impl LspSnapshot {
             || self.code_action.open
             || self.hover.is_some()
             || self.diagnostic.is_some()
+            || !self.pointer.is_empty()
     }
 }
 
@@ -160,6 +165,7 @@ impl OverlayMode for crate::input::EditorMode {
                 .hover_popover()
                 .map(|popover| popover.symbol_range.clone()),
             diagnostic: state.diagnostic_popover(),
+            pointer: state.pointer_diagnostics(),
             cursor: state.cursor(),
         })
     }
@@ -178,6 +184,7 @@ impl OverlayMode for crate::input::EditorMode {
             code_action_signature: OverlaySignature::default(),
             hover_signature: None,
             diagnostic_signature: None,
+            card_diagnostics: None,
         })
     }
 
@@ -226,6 +233,31 @@ impl OverlayMode for crate::input::EditorMode {
                     menu.hide(cx);
                 }
             });
+        }
+
+        // An app that draws its own hover card (`set_hover_renderer`) gets
+        // ONE card: the hover, and under it every diagnostic covering the
+        // pointer — never the kit's separate diagnostic box beside it, which
+        // overlapped the card and showed only the first diagnostic.
+        if cx.has_global::<crate::input::HoverRenderer>() {
+            let same_diagnostics = lsp
+                .card_diagnostics
+                .as_ref()
+                .is_some_and(|held| std::rc::Rc::ptr_eq(held, &snapshot.pointer));
+            if snapshot.hover != lsp.hover_signature || !same_diagnostics {
+                lsp.hover_signature = snapshot.hover.clone();
+                lsp.card_diagnostics = Some(snapshot.pointer.clone());
+                let hover = state
+                    .read(cx)
+                    .hover_popover()
+                    .map(|popover| (popover.symbol_range.clone(), popover.hover.clone()));
+                lsp.hover = (hover.is_some() || !snapshot.pointer.is_empty()).then(|| {
+                    HoverPopover::card(state.clone(), hover, snapshot.pointer.clone(), cx)
+                });
+            }
+            lsp.diagnostic = None;
+            lsp.diagnostic_signature = None;
+            return;
         }
 
         // A hover popover is anchored to one symbol, so a new range means new

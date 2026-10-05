@@ -40,6 +40,6 @@ pub use input::*;
 pub use lsp_types::Position;
 pub use number_input::{NumberInput, NumberInputEvent, NumberStep, StepAction};
 pub use otp_input::*;
-pub use popovers::{HoverRenderer, set_hover_renderer};
+pub use popovers::{HoverCard, HoverRenderer, set_hover_renderer};
 pub use state::AnyInputState;
 pub use textarea::Textarea;

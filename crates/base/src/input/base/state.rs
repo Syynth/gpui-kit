@@ -363,6 +363,9 @@ pub struct InputBaseState<M: InputModeKind> {
 
     /// Diagnostic currently requested by pointer hover; applications render it.
     pub(super) diagnostic_popover: Option<Rc<crate::input::DiagnosticEntry>>,
+    /// EVERY diagnostic whose range covers the pointer, in order — what an
+    /// app-drawn hover card lists (`diagnostic_popover` is only the first).
+    pub(super) pointer_diagnostics: Rc<[crate::input::DiagnosticEntry]>,
 
     context_menu_handler: Option<
         Rc<dyn Fn(NativeMenu, InputContextMenuCapabilities, Point<Pixels>, &mut Window, &mut App)>,
@@ -492,6 +495,12 @@ impl<M: InputModeKind> InputBaseState<M> {
 
     pub fn diagnostic_popover(&self) -> Option<Rc<crate::input::DiagnosticEntry>> {
         self.diagnostic_popover.clone()
+    }
+
+    /// Every diagnostic covering the pointer, in order. Empty when the
+    /// pointer is over none.
+    pub fn pointer_diagnostics(&self) -> Rc<[crate::input::DiagnosticEntry]> {
+        self.pointer_diagnostics.clone()
     }
 
     pub fn presentation(&self) -> InputPresentation {
@@ -667,6 +676,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             editor_style: InputEditorStyle::default(),
             projected_editor_style: InputEditorStyle::default(),
             diagnostic_popover: None,
+            pointer_diagnostics: Rc::from([]),
             context_menu_handler: None,
             pending_context_menu: None,
             enable_context_menu: true,
@@ -1812,6 +1822,25 @@ impl<M: InputModeKind> InputBaseState<M> {
             } else {
                 self.diagnostic_popover = None;
             }
+            // All of them, by containment: a range that starts before the
+            // pointer still covers it, which `for_offset`'s seek can miss.
+            let covering: Vec<crate::input::DiagnosticEntry> = self
+                .mode
+                .diagnostics()
+                .map(|set| {
+                    set.iter()
+                        .filter(|entry| {
+                            entry.range.start <= offset
+                                && offset < entry.range.end.max(entry.range.start + 1)
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            if *self.pointer_diagnostics != *covering {
+                self.pointer_diagnostics = Rc::from(covering);
+                cx.notify();
+            }
         }
     }
 
@@ -1837,6 +1866,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
 
         self.diagnostic_popover = None;
+        self.pointer_diagnostics = Rc::from([]);
     }
 
     pub(super) fn update_scroll_offset(
@@ -2420,6 +2450,7 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         M::clear_hover_state(self, cx);
         self.diagnostic_popover = None;
+        self.pointer_diagnostics = Rc::from([]);
         M::clear_inline_completion(self, cx);
         self.blink_cursor.update(cx, |cursor, cx| {
             cursor.stop(cx);

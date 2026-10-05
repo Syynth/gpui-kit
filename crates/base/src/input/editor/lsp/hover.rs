@@ -103,6 +103,9 @@ impl InputBaseState<EditorMode> {
         self.extras.hover_definition.clear();
         self.extras.hover_popover = None;
         self.extras.lsp._hover_task = Task::ready(Ok(()));
+        // An app-drawn card lists these beside the hover; it goes with it.
+        let changed = changed || !self.pointer_diagnostics.is_empty();
+        self.pointer_diagnostics = std::rc::Rc::from([]);
         if changed {
             cx.notify();
         }

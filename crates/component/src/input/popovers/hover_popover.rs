@@ -12,6 +12,16 @@ use crate::{
     input::{EditorState, popovers::render_markdown},
 };
 
+/// What an app-drawn hover card shows: the editor it belongs to (so an
+/// action in the card can edit it), the hover the provider answered if any,
+/// and every diagnostic covering the pointer.
+#[derive(Clone)]
+pub struct HoverCard {
+    pub editor: Entity<EditorState>,
+    pub hover: Option<Rc<lsp_types::Hover>>,
+    pub diagnostics: Rc<[crate::highlighter::DiagnosticEntry]>,
+}
+
 /// An app's own drawing of hover content, in place of the kit's generic
 /// markdown view, and how it wants the card styled. Installed once, for
 /// every editor in the app, with [`set_hover_renderer`].
@@ -22,8 +32,9 @@ use crate::{
 /// the dismissal and the card's frame.
 #[derive(Clone)]
 pub struct HoverRenderer {
-    /// Draws the card's content from the hover the provider answered.
-    pub render: Rc<dyn Fn(&lsp_types::Hover, &mut Window, &mut App) -> AnyElement>,
+    /// Draws the card's content: the hover, and the diagnostics under the
+    /// pointer, as one card.
+    pub render: Rc<dyn Fn(&HoverCard, &mut Window, &mut App) -> AnyElement>,
     /// Refines the card itself — padding, radius, shadow — over the kit's
     /// own popover chrome.
     pub card: StyleRefinement,
@@ -40,7 +51,9 @@ pub struct HoverPopover {
     editor: Entity<EditorState>,
     /// The symbol range byte of the hover trigger.
     pub(crate) symbol_range: Range<usize>,
-    pub(crate) hover: Rc<lsp_types::Hover>,
+    pub(crate) hover: Option<Rc<lsp_types::Hover>>,
+    /// For an app-drawn card: the diagnostics under the pointer.
+    diagnostics: Rc<[crate::highlighter::DiagnosticEntry]>,
 }
 
 impl HoverPopover {
@@ -55,7 +68,35 @@ impl HoverPopover {
         cx.new(|_| Self {
             editor,
             symbol_range,
+            hover: Some(hover),
+            diagnostics: Rc::from([]),
+        })
+    }
+
+    /// An app-drawn card: the hover if there is one, and the diagnostics.
+    /// Anchored on the hovered symbol, or on the first diagnostic's range
+    /// when there is no hover.
+    pub(crate) fn card(
+        editor: Entity<EditorState>,
+        hover: Option<(Range<usize>, lsp_types::Hover)>,
+        diagnostics: Rc<[crate::highlighter::DiagnosticEntry]>,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        let (symbol_range, hover) = match hover {
+            Some((range, hover)) => (range, Some(Rc::new(hover))),
+            None => (
+                diagnostics
+                    .first()
+                    .map(|d| d.range.clone())
+                    .unwrap_or_default(),
+                None,
+            ),
+        };
+        cx.new(|_| Self {
+            editor,
+            symbol_range,
             hover,
+            diagnostics,
         })
     }
 }
@@ -63,17 +104,24 @@ impl HoverPopover {
 impl Render for HoverPopover {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if let Some(renderer) = cx.try_global::<HoverRenderer>().cloned() {
-            let hover = self.hover.clone();
+            let card = HoverCard {
+                editor: self.editor.clone(),
+                hover: self.hover.clone(),
+                diagnostics: self.diagnostics.clone(),
+            };
             let mut popover = Popover::new(
                 "hover-popover",
                 self.editor.clone(),
                 self.symbol_range.clone(),
-                move |window, cx| (renderer.render)(&hover, window, cx),
+                move |window, cx| (renderer.render)(&card, window, cx),
             );
             *popover.style() = renderer.card;
             return popover.into_any_element();
         }
-        let contents = match self.hover.contents.clone() {
+        let Some(hover) = self.hover.clone() else {
+            return gpui::Empty.into_any_element();
+        };
+        let contents = match hover.contents.clone() {
             lsp_types::HoverContents::Scalar(scalar) => match scalar {
                 lsp_types::MarkedString::String(s) => s,
                 lsp_types::MarkedString::LanguageString(ls) => ls.value,
