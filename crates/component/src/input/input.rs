@@ -403,6 +403,7 @@ impl RenderOnce for Input {
                         .rounded(ButtonRounded::Small)
                         .size(px(14.))
                         .selected(is_folded)
+                        .tooltip(if is_folded { "Unfold" } else { "Fold" })
                         .into_any_element()
                 })),
             },
