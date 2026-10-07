@@ -2124,6 +2124,16 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.last_layout.as_ref().map(|l| l.visible_range.clone())
     }
 
+    /// Byte range of the buffer lines laid out in the last viewport, `None`
+    /// before first layout. Every offset in it has bounds
+    /// (`range_to_bounds`); a host that needs "the line at the top of the
+    /// view" searches within it.
+    pub fn visible_offset_range(&self) -> Option<std::ops::Range<usize>> {
+        self.last_layout
+            .as_ref()
+            .map(|l| l.visible_range_offset.clone())
+    }
+
     /// Current scroll offset of the editor viewport.
     pub fn scroll_offset(&self) -> gpui::Point<gpui::Pixels> {
         self.scroll_handle.offset()
