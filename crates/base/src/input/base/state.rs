@@ -2163,6 +2163,15 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.display_map.wrap_row_count()
     }
 
+    /// The first display row of a buffer line, soft wrap and folds applied.
+    ///
+    /// A host that sizes the editor to its content and scrolls it from
+    /// outside needs where a line sits before it has been laid out — a
+    /// reveal into a long wrapped file; counting newlines lands far short.
+    pub fn display_row_of_buffer_line(&self, line: usize) -> usize {
+        self.display_map.buffer_line_to_display_row(line)
+    }
+
     /// Returns the current selection as a byte range into the text.
     ///
     /// The range is empty (`start == end`) when no text is selected; in
