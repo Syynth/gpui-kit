@@ -269,6 +269,28 @@ pub(crate) fn init(cx: &mut App) {
     ]);
 }
 
+/// Colours for particular lines' numbers, by 0-based buffer line; see
+/// [`InputBaseState::set_line_number_colors`].
+pub type LineNumberColors = Rc<dyn Fn(usize) -> Option<gpui::Hsla>>;
+
+/// The hover group each [`GutterMarks`] cell is drawn in: a mark that shows
+/// only under the pointer (a debugger's faint "click to set" dot) is styled
+/// with `group_hover` on it.
+pub const GUTTER_MARK_GROUP: &str = "input-gutter-mark";
+
+/// A column the host draws in at the gutter's left, one cell per visible
+/// line, before the line numbers; see [`InputBaseState::set_gutter_marks`].
+#[derive(Clone)]
+pub struct GutterMarks {
+    /// The column's width.
+    pub width: Pixels,
+    /// A line's cell (0-based buffer line), drawn in the cell's bounds
+    /// inside the [`GUTTER_MARK_GROUP`] hover group.
+    pub render: Rc<dyn Fn(usize, &mut Window, &mut App) -> gpui::AnyElement>,
+    /// A press in a line's cell.
+    pub on_click: Rc<dyn Fn(usize, &mut Window, &mut App)>,
+}
+
 /// The shared text-editing engine behind [`crate::input::InputState`],
 /// [`crate::input::TextareaState`] and [`crate::input::EditorState`].
 ///
@@ -294,6 +316,12 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) min_line_number_digits: usize,
     pub(super) active_line_highlight: bool,
     pub(super) line_number_color: Option<gpui::Hsla>,
+    /// Per-line overrides of [`Self::line_number_color`]; see
+    /// [`Self::set_line_number_colors`].
+    pub(super) line_number_colors: Option<LineNumberColors>,
+    /// The host's column left of the line numbers; see
+    /// [`Self::set_gutter_marks`].
+    pub(super) gutter_marks: Option<GutterMarks>,
     pub(super) wrapping_indent: WrappingIndent,
     pub(super) scroll_beyond_last_line: Option<usize>,
     pub(super) cursor_surrounding_lines: Option<usize>,
@@ -635,6 +663,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             min_line_number_digits: 0,
             active_line_highlight: true,
             line_number_color: None,
+            line_number_colors: None,
+            gutter_marks: None,
             wrapping_indent: WrappingIndent::default(),
             scroll_beyond_last_line: None,
             cursor_surrounding_lines: None,
@@ -5256,6 +5286,26 @@ impl<M: crate::input::MultiLineMode> InputBaseState<M> {
     /// See [`Self::line_number_color`].
     pub fn set_line_number_color(&mut self, color: Option<gpui::Hsla>, cx: &mut Context<Self>) {
         self.line_number_color = color;
+        cx.notify();
+    }
+
+    /// Colour particular lines' numbers: `colors(buffer_line)` (0-based)
+    /// returns the colour for that line's number, or `None` for the usual
+    /// one — a breakpoint's line drawn red, as debuggers draw it.
+    pub fn set_line_number_colors(
+        &mut self,
+        colors: Option<LineNumberColors>,
+        cx: &mut Context<Self>,
+    ) {
+        self.line_number_colors = colors;
+        cx.notify();
+    }
+
+    /// A column the host draws in at the gutter's left, before the line
+    /// numbers — a debugger's breakpoint column. The numbers move right by
+    /// its width. Has no effect without line numbers.
+    pub fn set_gutter_marks(&mut self, marks: Option<GutterMarks>, cx: &mut Context<Self>) {
+        self.gutter_marks = marks;
         cx.notify();
     }
 

@@ -1061,8 +1061,8 @@ impl<M: InputModeKind> TextElement<M> {
         let total_lines = text.lines_len();
         // One extra column beyond the widest line number, so right-aligned
         // numbers keep a gap from the left edge.
-        let line_number_len = (total_lines.max(1).ilog10() as usize + 2)
-            .max(state.min_line_number_digits + 1);
+        let line_number_len =
+            (total_lines.max(1).ilog10() as usize + 2).max(state.min_line_number_digits + 1);
 
         let mut line_number_width = if state.mode.line_number() {
             let empty_line_number = window.text_system().shape_line(
@@ -1079,7 +1079,10 @@ impl<M: InputModeKind> TextElement<M> {
                 None,
             );
 
-            empty_line_number.width + LINE_NUMBER_RIGHT_MARGIN
+            // The host's column, if any, goes before the numbers.
+            empty_line_number.width
+                + LINE_NUMBER_RIGHT_MARGIN
+                + state.gutter_marks.as_ref().map_or(px(0.), |m| m.width)
         } else if state.is_code_editor() {
             LINE_NUMBER_RIGHT_MARGIN
         } else {
@@ -1302,10 +1305,9 @@ impl<M: InputModeKind> TextElement<M> {
         let line_height = last_layout.line_height;
         let line_number_width =
             last_layout.line_number_width - LINE_NUMBER_RIGHT_MARGIN - FOLD_ICON_HITBOX_WIDTH;
-        let icon_relative_pos = point(
-            (FOLD_ICON_HITBOX_WIDTH - FOLD_ICON_WIDTH).half(),
-            (line_height - FOLD_ICON_WIDTH).half(),
-        );
+        // The button fills its hit square, centred on the line, so a host's
+        // ghost button highlights the whole of it.
+        let icon_relative_pos = point(px(0.), (line_height - FOLD_ICON_HITBOX_WIDTH).half());
 
         for (ix, info) in fold_infos.iter().enumerate() {
             // Position fold icon to the right of line numbers.
@@ -1315,7 +1317,7 @@ impl<M: InputModeKind> TextElement<M> {
                     origin_x + icon_relative_pos.x + line_number_width,
                     bounds.origin.y + icon_relative_pos.y + info.offset_y,
                 ),
-                size(FOLD_ICON_HITBOX_WIDTH, line_height),
+                size(FOLD_ICON_HITBOX_WIDTH, FOLD_ICON_HITBOX_WIDTH),
             );
 
             // Create and prepaint icon
@@ -1351,7 +1353,10 @@ impl<M: InputModeKind> TextElement<M> {
                 });
             let mut icon = gpui::div()
                 .id(("fold", ix))
-                .size(FOLD_ICON_WIDTH)
+                .size(FOLD_ICON_HITBOX_WIDTH)
+                .flex()
+                .items_center()
+                .justify_center()
                 .child(child)
                 .on_mouse_down(MouseButton::Left, {
                     let state = self.state.clone();
@@ -1380,6 +1385,55 @@ impl<M: InputModeKind> TextElement<M> {
         }
 
         icon_layout
+    }
+
+    /// The host's gutter column ([`GutterMarks`]): a cell per visible line
+    /// at the gutter's left, in the line's first row, each a hover group
+    /// that takes a press for its line.
+    fn layout_gutter_marks(
+        &self,
+        origin_x: Pixels,
+        bounds: &Bounds<Pixels>,
+        last_layout: &LastLayout,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<gpui::AnyElement> {
+        let Some(marks) = self.state.read(cx).gutter_marks.clone() else {
+            return Vec::new();
+        };
+        if !self.state.read(cx).mode.line_number() {
+            return Vec::new();
+        }
+        let line_height = last_layout.line_height;
+        let mut out = Vec::with_capacity(last_layout.visible_buffer_lines.len());
+        let mut offset_y = last_layout.visible_top;
+        for (line, &buffer_line) in last_layout
+            .lines
+            .iter()
+            .zip(last_layout.visible_buffer_lines.iter())
+        {
+            let on_click = marks.on_click.clone();
+            let mut cell = gpui::div()
+                .id(("gutter-mark", buffer_line))
+                .group(super::state::GUTTER_MARK_GROUP)
+                .size_full()
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    cx.stop_propagation();
+                    on_click(buffer_line, window, cx);
+                })
+                .child((marks.render)(buffer_line, window, cx))
+                .into_any_element();
+            cell.prepaint_as_root(
+                point(origin_x, bounds.origin.y + offset_y),
+                size(marks.width, line_height).into(),
+                window,
+                cx,
+            );
+            out.push(cell);
+            offset_y += line.wrapped_lines.len() * line_height;
+        }
+        out
     }
 
     /// Paint fold icons using prepaint hitboxes.
@@ -1727,6 +1781,8 @@ pub(super) struct PrepaintState {
     bounds: Bounds<Pixels>,
     /// Fold icon layout data
     fold_icon_layout: FoldIconLayout,
+    /// The host's gutter column's cells, prepainted; see `GutterMarks`.
+    gutter_marks: Vec<gpui::AnyElement>,
     // Inline completion rendering data
     /// Shaped ghost lines to paint after cursor row (completion lines 2+)
     ghost_lines: Vec<ShapedLine>,
@@ -2173,7 +2229,19 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 let line_no: SharedString =
                     format!("{:>width$}", buffer_line + 1, width = line_number_len).into();
 
-                let runs = if current_row == Some(buffer_line) {
+                let custom = state
+                    .line_number_colors
+                    .as_ref()
+                    .and_then(|colors| colors(buffer_line))
+                    .map(|color| {
+                        vec![TextRun {
+                            color,
+                            ..other_line_runs[0].clone()
+                        }]
+                    });
+                let runs = if let Some(custom) = custom.as_ref() {
+                    custom
+                } else if current_row == Some(buffer_line) {
                     &current_line_runs
                 } else {
                     &other_line_runs
@@ -2209,6 +2277,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             )));
         let fold_icon_layout =
             self.layout_fold_icons(original_x, &bounds, &last_layout, window, cx);
+        let gutter_marks = self.layout_gutter_marks(original_x, &bounds, &last_layout, window, cx);
 
         PrepaintState {
             bounds,
@@ -2226,6 +2295,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             inlay_swatches,
             indent_guides_path,
             fold_icon_layout,
+            gutter_marks,
             ghost_first_line,
             ghost_lines,
             ghost_lines_height,
@@ -2493,12 +2563,20 @@ impl<M: InputModeKind> Element for TextElement<M> {
             );
             window.paint_quad(fill(gutter_bounds, gutter_bg));
 
+            // After the host's column, when there is one.
+            let marks_width = self
+                .state
+                .read(cx)
+                .gutter_marks
+                .as_ref()
+                .map_or(px(0.), |m| m.width);
+
             // Each item is the normal lines.
             for (lines, &buffer_line) in line_numbers
                 .iter()
                 .zip(prepaint.last_layout.visible_buffer_lines.iter())
             {
-                let p = point(input_bounds.origin.x, origin.y + offset_y);
+                let p = point(input_bounds.origin.x + marks_width, origin.y + offset_y);
                 let is_active = prepaint.current_row == Some(buffer_line);
 
                 let height = line_height * lines.len() as f32;
@@ -2525,6 +2603,11 @@ impl<M: InputModeKind> Element for TextElement<M> {
                     offset_y += prepaint.ghost_lines_height;
                 }
             }
+        }
+
+        // The host's gutter column, over the gutter's background.
+        for mark in prepaint.gutter_marks.iter_mut() {
+            mark.paint(window, cx);
         }
 
         // Paint fold icons (only visible on hover or for current line)

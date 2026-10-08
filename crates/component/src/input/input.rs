@@ -401,7 +401,9 @@ impl RenderOnce for Input {
                         })
                         .xsmall()
                         .rounded(ButtonRounded::Small)
-                        .size(px(14.))
+                        // The whole hit square the gutter gives it: a ghost
+                        // button whose highlight reads as a button.
+                        .size(px(18.))
                         .selected(is_folded)
                         .tooltip(if is_folded { "Unfold" } else { "Fold" })
                         .into_any_element()

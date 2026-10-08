@@ -31,6 +31,7 @@ pub use gpui_base::input::{
     WrappingIndent,
 };
 pub use gpui_base::input::{EditorMode, InputMode, InputModeKind, TextareaMode};
+pub use gpui_base::input::{GUTTER_MARK_GROUP, GutterMarks, LineNumberColors};
 #[doc(hidden)]
 mod editor;
 mod state;
