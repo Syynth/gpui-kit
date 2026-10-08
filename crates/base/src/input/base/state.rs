@@ -2172,6 +2172,24 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.display_map.buffer_line_to_display_row(line)
     }
 
+    /// The highlighter's style runs over `range` — what the editor paints
+    /// those bytes with — for a host that draws a line of this text
+    /// somewhere else (pinned structure lines). Empty without a
+    /// highlighter.
+    pub fn highlight_styles(
+        &self,
+        range: &Range<usize>,
+    ) -> Vec<(Range<usize>, gpui::HighlightStyle)> {
+        match &self.mode {
+            LayoutMode::CodeEditor { highlighter, .. } => highlighter
+                .borrow()
+                .as_ref()
+                .map(|h| h.styles(range, self.editor_style.highlight_styles.as_ref()))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Returns the current selection as a byte range into the text.
     ///
     /// The range is empty (`start == end`) when no text is selected; in
