@@ -2200,6 +2200,26 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.display_map.display_row_count()
     }
 
+    /// Whether a fold starts on 0-based buffer `line`: `Some(folded)`, or
+    /// `None` when nothing folds there — for a host that offers Fold or
+    /// Unfold from a menu rather than the gutter.
+    pub fn fold_at(&self, line: usize) -> Option<bool> {
+        self.display_map
+            .is_fold_candidate(line)
+            .then(|| self.display_map.is_folded_at(line))
+    }
+
+    /// Fold, or unfold, the region starting on 0-based buffer `line` — the
+    /// gutter's fold button, from code. Returns whether one was there.
+    pub fn toggle_fold_at(&mut self, line: usize, cx: &mut Context<Self>) -> bool {
+        if !self.display_map.is_fold_candidate(line) {
+            return false;
+        }
+        self.display_map.toggle_fold(line);
+        cx.notify();
+        true
+    }
+
     /// The first display row of a buffer line, soft wrap and folds applied.
     ///
     /// A host that sizes the editor to its content and scrolls it from
