@@ -2193,6 +2193,13 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.display_map.wrap_row_count()
     }
 
+    /// How many rows the text shows once soft wrap AND folds are applied —
+    /// what a host that sizes the editor to its content needs once it can
+    /// fold, since [`Self::wrap_row_count`] counts folded rows too.
+    pub fn display_row_count(&self) -> usize {
+        self.display_map.display_row_count()
+    }
+
     /// The first display row of a buffer line, soft wrap and folds applied.
     ///
     /// A host that sizes the editor to its content and scrolls it from
