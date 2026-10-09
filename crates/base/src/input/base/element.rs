@@ -2386,10 +2386,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                     .as_ref()
                     .and_then(|backgrounds| backgrounds(buffer_line))
                 {
-                    window.paint_quad(fill(
-                        Bounds::new(p, size(bounds.size.width, height)),
-                        band,
-                    ));
+                    window.paint_quad(fill(Bounds::new(p, size(bounds.size.width, height)), band));
                 }
                 offset_y += height;
             }
