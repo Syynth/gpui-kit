@@ -273,6 +273,11 @@ pub(crate) fn init(cx: &mut App) {
 /// [`InputBaseState::set_line_number_colors`].
 pub type LineNumberColors = Rc<dyn Fn(usize) -> Option<gpui::Hsla>>;
 
+/// Backgrounds for particular lines, by 0-based buffer line, drawn across
+/// the editor's full width under the text; see
+/// [`InputBaseState::set_line_backgrounds`].
+pub type LineBackgrounds = Rc<dyn Fn(usize) -> Option<gpui::Hsla>>;
+
 /// The hover group each [`GutterMarks`] cell is drawn in: a mark that shows
 /// only under the pointer (a debugger's faint "click to set" dot) is styled
 /// with `group_hover` on it.
@@ -319,6 +324,8 @@ pub struct InputBaseState<M: InputModeKind> {
     /// Per-line overrides of [`Self::line_number_color`]; see
     /// [`Self::set_line_number_colors`].
     pub(super) line_number_colors: Option<LineNumberColors>,
+    /// Per-line bands; see [`Self::set_line_backgrounds`].
+    pub(super) line_backgrounds: Option<LineBackgrounds>,
     /// The host's column left of the line numbers; see
     /// [`Self::set_gutter_marks`].
     pub(super) gutter_marks: Option<GutterMarks>,
@@ -664,6 +671,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             active_line_highlight: true,
             line_number_color: None,
             line_number_colors: None,
+            line_backgrounds: None,
             gutter_marks: None,
             wrapping_indent: WrappingIndent::default(),
             scroll_beyond_last_line: None,
@@ -5325,6 +5333,20 @@ impl<M: crate::input::MultiLineMode> InputBaseState<M> {
         cx: &mut Context<Self>,
     ) {
         self.line_number_colors = colors;
+        cx.notify();
+    }
+
+    /// Band particular lines: `backgrounds(buffer_line)` (0-based) returns
+    /// the colour to fill that line's full width with, under its text, or
+    /// `None` for none — a debugger's current line, as debuggers draw it.
+    /// Drawn over the active-line band, so a host band wins on the caret's
+    /// line.
+    pub fn set_line_backgrounds(
+        &mut self,
+        backgrounds: Option<LineBackgrounds>,
+        cx: &mut Context<Self>,
+    ) {
+        self.line_backgrounds = backgrounds;
         cx.notify();
     }
 

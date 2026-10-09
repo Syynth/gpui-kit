@@ -2320,6 +2320,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             editor_style,
             editor_paddings,
             active_line_highlight,
+            line_backgrounds,
         ) = {
             let state = self.state.read(cx);
             (
@@ -2330,6 +2331,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 state.editor_style.clone(),
                 state.editor_paddings,
                 state.active_line_highlight,
+                state.line_backgrounds.clone(),
             )
         };
         let focused = focus_handle.is_focused(window);
@@ -2378,6 +2380,16 @@ impl<M: InputModeKind> Element for TextElement<M> {
                             bg_color,
                         ));
                     }
+                }
+                // The host's band for this line, over the active line's.
+                if let Some(band) = line_backgrounds
+                    .as_ref()
+                    .and_then(|backgrounds| backgrounds(buffer_line))
+                {
+                    window.paint_quad(fill(
+                        Bounds::new(p, size(bounds.size.width, height)),
+                        band,
+                    ));
                 }
                 offset_y += height;
             }
