@@ -103,9 +103,12 @@ impl RenderOnce for CompletionMenuItem {
         // VENDOR EDIT — a roomier row: the body's size rather than the
         // smallest, padding to read it at, and the detail set off to the
         // right in the muted colour rather than italic against the label.
+        // The menu sizes itself by measuring its longest row at min-content,
+        // where wrappable text counts only its longest word — so the row
+        // does not wrap, and measures as the whole label and detail.
         h_flex()
             .id(self.ix)
-            .w_full()
+            .whitespace_nowrap()
             .gap_4()
             .px_2()
             .py_1()
@@ -178,6 +181,10 @@ impl ListDelegate for ContextMenuDelegate {
 /// A context menu for code completions and code actions.
 pub struct CompletionMenu {
     offset: usize,
+    /// VENDOR EDIT — the longest row's natural width, measured when shown.
+    /// The list fills the popover, so without it the popover has no width
+    /// of its own and falls to its minimum, cutting long rows off.
+    content_width: Option<Pixels>,
     editor: WeakEntity<EditorState>,
     list: Entity<ListState<ContextMenuDelegate>>,
     open: bool,
@@ -223,6 +230,7 @@ impl CompletionMenu {
 
             Self {
                 offset: 0,
+                content_width: None,
                 editor: editor.downgrade(),
                 list,
                 open: false,
@@ -334,16 +342,17 @@ impl CompletionMenu {
         let selected = selected.min(items.len().saturating_sub(1));
         self.offset = offset;
         self.open = true;
+        let longest_ix = items
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, item)| {
+                item.label.len() + item.detail.as_ref().map(|d| d.len()).unwrap_or(0)
+            })
+            .map(|(ix, _)| ix)
+            .unwrap_or(0);
+        // Measured at the next render, inside the editor's text style.
+        self.content_width = None;
         self.list.update(cx, |this, cx| {
-            let longest_ix = items
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, item)| {
-                    item.label.len() + item.detail.as_ref().map(|d| d.len()).unwrap_or(0)
-                })
-                .map(|(ix, _)| ix)
-                .unwrap_or(0);
-
             this.delegate_mut().query = self.query.clone();
             this.delegate_mut().set_items(items);
             this.set_selected_index(Some(IndexPath::new(selected)), window, cx);
@@ -395,6 +404,35 @@ impl Render for CompletionMenu {
         let Some(editor) = self.editor.upgrade() else {
             return Empty.into_any_element();
         };
+        // The longest row in the popover's own styling, measured here
+        // rather than when shown: this render runs inside the editor, so
+        // the font that measures it is the font that draws it.
+        if self.content_width.is_none() {
+            let longest = {
+                let items = &self.list.read(cx).delegate().items;
+                items
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, item)| {
+                        item.label.len() + item.detail.as_ref().map_or(0, |d| d.len())
+                    })
+                    .map(|(ix, item)| (ix, item.clone()))
+            };
+            self.content_width = longest.map(|(ix, item)| {
+                editor_popover("completion-menu-measure", cx)
+                    .child(CompletionMenuItem::new(ix, item))
+                    .into_any_element()
+                    .layout_as_root(
+                        gpui::size(
+                            gpui::AvailableSpace::MaxContent,
+                            gpui::AvailableSpace::MinContent,
+                        ),
+                        window,
+                        cx,
+                    )
+                    .width
+            });
+        }
         let configured_max = editor.read(cx).lsp().completion_menu.max_width;
         let max_width = configured_max.min(window.bounds().size.width - pos.x);
         let abs_pos = editor.read(cx).input_bounds().origin + pos;
@@ -414,6 +452,10 @@ impl Render for CompletionMenu {
                 .when(vertical_layout, |this| this.flex_col())
                 .child(
                     editor_popover("completion-menu", cx)
+                        .when_some(self.content_width, |this, width| {
+                            // A little over: the list's scrollbar gutter.
+                            this.w((width + px(24.)).min(max_width))
+                        })
                         .max_w(max_width)
                         .min_w(px(220.))
                         .child(List::new(&self.list).max_h(MAX_MENU_HEIGHT)),
