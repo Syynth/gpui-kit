@@ -1774,6 +1774,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         let (offset, line_end_affinity) = self.index_for_mouse_position(event.position);
 
         if M::on_click(self, event, offset, window, cx) {
+            // VENDOR EDIT — a press something else took (an inlay's click,
+            // a go-to-definition) starts no selection: left on, the drag to
+            // the release dragged the caret from wherever the handler put it.
+            self.selecting = false;
             return;
         }
 
