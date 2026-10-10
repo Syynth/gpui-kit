@@ -887,7 +887,7 @@ impl<M: InputModeKind> TextElement<M> {
 
     /// VENDOR EDIT — geometry for the swatch drawn inside each inlay chip.
     ///
-    /// `LineLayout::inlay_x_bounds` gives the chip's own x span, so the square
+    /// `LineLayout::inlay_x_bounds_nth` gives the chip's own x span, so the square
     /// is placed relative to the CHIP rather than to any buffer text — which
     /// is what makes it drawing-in-a-widget rather than decoration-on-text.
     fn layout_inlay_swatches(
