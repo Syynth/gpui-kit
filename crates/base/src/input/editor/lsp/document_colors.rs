@@ -92,10 +92,13 @@ impl Lsp {
 
         let provider = provider.clone();
         let text = text.clone();
-        let input_state = cx.entity();
 
         // debounce timer 100ms
-        self._document_color_task = cx.spawn_in(window, async move |_, cx| {
+        //
+        // The task is stored on the editor, so it holds the editor weakly
+        // (the handle `spawn_in` passes in): a strong one would keep the
+        // editor alive for as long as the task is pending.
+        self._document_color_task = cx.spawn_in(window, async move |input_state, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(100))
                 .await;
