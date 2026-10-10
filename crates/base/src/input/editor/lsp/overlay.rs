@@ -10,6 +10,8 @@ pub struct CompletionMenuState {
     pub trigger_start_offset: Option<usize>,
     pub query: String,
     pub items: Vec<CompletionItem>,
+    /// VENDOR EDIT — the item the menu opens on; the first when `None`.
+    pub selected: Option<usize>,
     revision: u64,
 }
 
@@ -71,6 +73,21 @@ impl InputBaseState<EditorMode> {
         items: Vec<CompletionItem>,
         cx: &mut Context<Self>,
     ) {
+        self.present_completion_items_selected(trigger_start_offset, query, items, None, cx);
+    }
+
+    /// VENDOR EDIT — [`Self::present_completion_items`], opening on item
+    /// `selected` rather than the first: a picker over a value already
+    /// written opens on that value.
+    pub fn present_completion_items_selected(
+        &mut self,
+        trigger_start_offset: usize,
+        query: impl Into<String>,
+        items: Vec<CompletionItem>,
+        selected: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.extras.context_menu_content.completion.selected = selected;
         self.extras
             .context_menu_content
             .completion

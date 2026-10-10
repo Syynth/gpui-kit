@@ -426,7 +426,14 @@ fn splice_inlays(
         if let Some(color) = inlay.style.color {
             run.color = color;
         }
-        run.background_color = inlay.style.background_color;
+        // The line's face, but not its first run's weight or slant: an inlay
+        // on a line that opens with bold text is not bold. Its own style can
+        // still ask for either.
+        run.font.weight = inlay.style.font_weight.unwrap_or_default();
+        run.font.style = inlay.style.font_style.unwrap_or_default();
+        // The background is painted as a rounded chip under the text
+        // (`layout_inlay_chips`), not as a run highlight.
+        run.background_color = None;
         out_runs.push(run);
     }
     if cursor < line_len {
@@ -901,12 +908,18 @@ impl<M: InputModeKind> TextElement<M> {
             let Some(&line_start) = last_layout.visible_line_byte_offsets.get(vi) else {
                 break;
             };
-            for inlay in inlays {
+            for (ix, inlay) in inlays.iter().enumerate() {
                 let Some(swatch) = inlay.swatch else { continue };
                 if inlay.offset < line_start {
                     continue;
                 }
-                let Some((x0, _x1)) = line_layout.inlay_x_bounds(inlay.offset - line_start) else {
+                let nth = inlays[..ix]
+                    .iter()
+                    .filter(|i| i.offset == inlay.offset)
+                    .count();
+                let Some((x0, _x1)) =
+                    line_layout.inlay_x_bounds_nth(inlay.offset - line_start, nth)
+                else {
                     continue;
                 };
                 let size = line_height * 0.5;
@@ -915,6 +928,60 @@ impl<M: InputModeKind> TextElement<M> {
                     y + (line_height - size) / 2.,
                 );
                 out.push((Bounds::new(origin, gpui::size(size, size)), swatch));
+            }
+            y += line_layout.size(line_height).height;
+        }
+        out
+    }
+
+    /// VENDOR EDIT — the rounded background of each inlay that has one,
+    /// inset from the line's top and bottom so a chip reads as an object
+    /// sitting in the line rather than a highlighted stretch of it.
+    fn layout_inlay_chips(
+        &self,
+        last_layout: &LastLayout,
+        bounds: &Bounds<Pixels>,
+        cx: &mut App,
+    ) -> Vec<(Bounds<Pixels>, Hsla, Option<Hsla>)> {
+        let state = self.state.read(cx);
+        let inlays = state.extras.inlays();
+        if inlays.is_empty() {
+            return Vec::new();
+        }
+        let line_height = last_layout.line_height;
+        let inset = (line_height * 0.12).round();
+        let mut out = Vec::new();
+        let mut y = bounds.origin.y + last_layout.visible_top;
+        for (vi, line_layout) in last_layout.lines.iter().enumerate() {
+            let Some(&line_start) = last_layout.visible_line_byte_offsets.get(vi) else {
+                break;
+            };
+            for (ix, inlay) in inlays.iter().enumerate() {
+                let Some(color) = inlay.style.background_color else {
+                    continue;
+                };
+                if inlay.offset < line_start {
+                    continue;
+                }
+                // Inlays sharing an anchor sit side by side; this one is the
+                // `nth` of them.
+                let nth = inlays[..ix]
+                    .iter()
+                    .filter(|i| i.offset == inlay.offset)
+                    .count();
+                let Some((x0, x1)) = line_layout.inlay_x_bounds_nth(inlay.offset - line_start, nth)
+                else {
+                    continue;
+                };
+                let origin = point(
+                    bounds.origin.x + last_layout.line_number_width + x0,
+                    y + inset,
+                );
+                out.push((
+                    Bounds::new(origin, gpui::size(x1 - x0, line_height - inset * 2.)),
+                    color,
+                    inlay.border,
+                ));
             }
             y += line_layout.size(line_height).height;
         }
@@ -1776,6 +1843,7 @@ pub(super) struct PrepaintState {
     document_color_paths: Vec<(Path<Pixels>, Hsla)>,
     /// VENDOR EDIT — quads drawn INSIDE inlay chips (`Inlay::swatch`).
     inlay_swatches: Vec<(Bounds<Pixels>, Hsla)>,
+    inlay_chips: Vec<(Bounds<Pixels>, Hsla, Option<Hsla>)>,
     hover_definition_hitbox: Option<Hitbox>,
     indent_guides_path: Option<Path<Pixels>>,
     bounds: Bounds<Pixels>,
@@ -2195,6 +2263,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let document_color_paths =
             self.layout_document_colors(&document_colors, &last_layout, &bounds, cx);
         let inlay_swatches = self.layout_inlay_swatches(&last_layout, &bounds, cx);
+        let inlay_chips = self.layout_inlay_chips(&last_layout, &bounds, cx);
 
         let state = self.state.read(cx);
         let line_numbers = if state.mode.line_number() {
@@ -2293,6 +2362,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             hover_definition_hitbox,
             document_color_paths,
             inlay_swatches,
+            inlay_chips,
             indent_guides_path,
             fold_icon_layout,
             gutter_marks,
@@ -2472,7 +2542,16 @@ impl<M: InputModeKind> Element for TextElement<M> {
             window.paint_path(path.clone(), color);
         }
 
-        // VENDOR EDIT — a chip's own drawing, inside its bounds.
+        // VENDOR EDIT — inlay chips, then a chip's own drawing inside them.
+        for (rect, color, border) in prepaint.inlay_chips.iter() {
+            let color = if disabled { color.opacity(0.5) } else { *color };
+            let mut quad = gpui::fill(*rect, color).corner_radii(px(3.));
+            if let Some(border) = border {
+                // Borders are drawn inside the bounds: the chip keeps its size.
+                quad = quad.border_widths(px(1.)).border_color(*border);
+            }
+            window.paint_quad(quad);
+        }
         for (rect, color) in prepaint.inlay_swatches.iter() {
             let color = if disabled { color.opacity(0.5) } else { *color };
             window.paint_quad(gpui::fill(*rect, color));

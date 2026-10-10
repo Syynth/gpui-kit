@@ -205,14 +205,14 @@ impl OverlayMode for crate::input::EditorMode {
             let open = snapshot.completion.open;
             let start = snapshot.completion_start;
             // Read the items only now, on a frame where they changed.
-            let (query, items) = {
+            let (query, items, selected) = {
                 let menu = state.read(cx).completion_menu_state();
-                (menu.query.clone(), menu.items.clone())
+                (menu.query.clone(), menu.items.clone(), menu.selected)
             };
             lsp.completion.update(cx, |menu, cx| {
                 if open {
                     menu.update_query(start.unwrap_or(cursor), query);
-                    menu.show(cursor, items, window, cx);
+                    menu.show(cursor, items, selected.unwrap_or(0), window, cx);
                 } else {
                     menu.hide(cx);
                 }

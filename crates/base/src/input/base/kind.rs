@@ -339,6 +339,9 @@ pub struct Inlay {
     /// A colour swatch drawn INSIDE the chip, left of its text — a filled
     /// quad painted at the inlay's own pixel bounds, not a glyph.
     pub swatch: Option<gpui::Hsla>,
+    /// VENDOR EDIT — a 1px outline drawn inside the chip's background, so
+    /// it adds no size.
+    pub border: Option<gpui::Hsla>,
 }
 
 /// Called when a click lands inside an inlay, with the buffer offset the

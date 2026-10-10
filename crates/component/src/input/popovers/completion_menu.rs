@@ -100,12 +100,17 @@ impl RenderOnce for CompletionMenuItem {
             },
         )];
 
+        // VENDOR EDIT — a roomier row: the body's size rather than the
+        // smallest, padding to read it at, and the detail set off to the
+        // right in the muted colour rather than italic against the label.
         h_flex()
             .id(self.ix)
-            .gap_2()
-            .p_1()
-            .text_xs()
-            .line_height(relative(1.))
+            .w_full()
+            .gap_4()
+            .px_2()
+            .py_1()
+            .text_sm()
+            .line_height(relative(1.25))
             .rounded(cx.theme().radius.half())
             .when(item.deprecated.unwrap_or(false), |this| this.line_through())
             .hover(|this| this.bg(cx.theme().accent.opacity(0.8)))
@@ -113,13 +118,17 @@ impl RenderOnce for CompletionMenuItem {
                 this.bg(cx.theme().tokens.accent)
                     .text_color(cx.theme().accent_foreground)
             })
-            .child(div().child(StyledText::new(item.label.clone()).with_highlights(highlights)))
+            .child(
+                div()
+                    .flex_1()
+                    .child(StyledText::new(item.label.clone()).with_highlights(highlights)),
+            )
             .when(item.detail.is_some(), |this| {
                 this.child(
                     Label::new(item.detail.as_deref().unwrap_or("").to_string())
+                        .flex_none()
                         .text_color(cx.theme().muted_foreground)
-                        .when(deprecated, |this| this.line_through())
-                        .italic(),
+                        .when(deprecated, |this| this.line_through()),
                 )
             })
             .children(self.children)
@@ -317,10 +326,12 @@ impl CompletionMenu {
         &mut self,
         offset: usize,
         items: impl Into<Vec<CompletionItem>>,
+        selected: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let items = items.into();
+        let selected = selected.min(items.len().saturating_sub(1));
         self.offset = offset;
         self.open = true;
         self.list.update(cx, |this, cx| {
@@ -335,7 +346,7 @@ impl CompletionMenu {
 
             this.delegate_mut().query = self.query.clone();
             this.delegate_mut().set_items(items);
-            this.set_selected_index(Some(IndexPath::new(0)), window, cx);
+            this.set_selected_index(Some(IndexPath::new(selected)), window, cx);
             this.set_item_to_measure_index(IndexPath::new(longest_ix), window, cx);
         });
 
@@ -404,7 +415,7 @@ impl Render for CompletionMenu {
                 .child(
                     editor_popover("completion-menu", cx)
                         .max_w(max_width)
-                        .min_w(px(120.))
+                        .min_w(px(220.))
                         .child(List::new(&self.list).max_h(MAX_MENU_HEIGHT)),
                 )
                 .when_some(selected_documentation, |this, documentation| {

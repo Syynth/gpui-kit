@@ -589,13 +589,20 @@ impl LineLayout {
     }
 
     /// The x span an inlay occupies on screen, for painting inside it.
-    pub(crate) fn inlay_x_bounds(&self, anchor: usize) -> Option<(Pixels, Pixels)> {
+    /// VENDOR EDIT — an inlay's x span within the line: the `nth` of
+    /// several anchored at the same offset, in the order they were set (a
+    /// gap, then a chip, both after one literal).
+    pub(crate) fn inlay_x_bounds_nth(&self, anchor: usize, nth: usize) -> Option<(Pixels, Pixels)> {
         let line = self.wrapped_lines.first()?;
         let mut shift = 0;
+        let mut seen = 0;
         for (at, len) in &self.inlays {
             if *at == anchor {
-                let start = at + shift;
-                return Some((line.x_for_index(start), line.x_for_index(start + len)));
+                if seen == nth {
+                    let start = at + shift;
+                    return Some((line.x_for_index(start), line.x_for_index(start + len)));
+                }
+                seen += 1;
             }
             shift += len;
         }
