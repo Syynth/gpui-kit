@@ -122,10 +122,10 @@ impl Lsp {
         // viewport at paint time (mirrors `update_document_colors`), so a
         // scroll never needs a refetch.
         let range = 0..text.len();
-        let input_state = cx.entity();
 
-        // debounce timer 100ms
-        self._semantic_tokens_task = cx.spawn_in(window, async move |_, cx| {
+        // debounce timer 100ms; the editor is held weakly, as in
+        // `update_document_colors`.
+        self._semantic_tokens_task = cx.spawn_in(window, async move |input_state, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(100))
                 .await;
