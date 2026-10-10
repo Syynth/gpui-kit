@@ -250,7 +250,11 @@ impl CompletionMenu {
             return false;
         }
 
-        cx.propagate();
+        // VENDOR EDIT — no `cx.propagate()` here. A menu that handles the
+        // key consumes it; propagating let the same Enter reach the editor's
+        // own handler once the menu had closed, so accepting an item also
+        // inserted a newline. An action the menu does not handle returns
+        // `false`, and the editor carries on with it as before.
         if input::Enter::is_primary(&*action) {
             self.on_action_enter(window, cx);
         } else if action.partial_eq(&input::Escape) {
