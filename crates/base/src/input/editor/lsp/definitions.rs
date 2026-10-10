@@ -78,8 +78,8 @@ impl InputBaseState<EditorMode> {
         // Currently not implemented.
         let task = provider.definitions(&self.text, offset, window, cx);
         let mut symbol_range = self.text.word_range(offset).unwrap_or(offset..offset);
-        let editor = cx.entity();
-        self.extras.lsp._hover_task = cx.spawn_in(window, async move |_, cx| {
+        // Held weakly: the task is stored on the editor itself.
+        self.extras.lsp._hover_task = cx.spawn_in(window, async move |editor, cx| {
             let locations = task.await?;
 
             _ = editor.update(cx, |editor, cx| {

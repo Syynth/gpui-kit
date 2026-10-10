@@ -58,10 +58,14 @@ impl InputBaseState<EditorMode> {
         let providers = self.extras.lsp.code_action_providers.clone();
         let range = self.selected_range.start..self.selected_range.end;
 
-        let state = cx.entity();
+        // The task is stored on the editor, so it holds only the weak
+        // `editor` and lends the providers a strong handle just for the call.
         self.extras.context_menu_task = cx.spawn_in(window, async move |editor, cx| {
             let mut provider_responses = vec![];
             _ = cx.update(|window, cx| {
+                let Some(state) = editor.upgrade() else {
+                    return;
+                };
                 for provider in providers {
                     let task = provider.code_actions(state.clone(), range.clone(), window, cx);
                     provider_responses.push((provider.id(), task));
