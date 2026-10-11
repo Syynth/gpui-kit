@@ -208,6 +208,7 @@ impl InputBaseState<EditorMode> {
 
                     editor.extras.context_menu_content.completion.items = completions;
                     editor.extras.context_menu_content.completion.selected = None;
+                    editor.extras.context_menu_content.completion.anchor = None;
                     editor.extras.context_menu_content.completion.open = !editor
                         .extras
                         .context_menu_content

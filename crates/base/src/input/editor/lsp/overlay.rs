@@ -12,6 +12,10 @@ pub struct CompletionMenuState {
     pub items: Vec<CompletionItem>,
     /// VENDOR EDIT — the item the menu opens on; the first when `None`.
     pub selected: Option<usize>,
+    /// VENDOR EDIT — the buffer offset the menu hangs from; the caret when
+    /// `None`. A menu opened from something other than typing (a value
+    /// picker on an inlay) anchors where it belongs and leaves the caret.
+    pub anchor: Option<usize>,
     revision: u64,
 }
 
@@ -87,7 +91,29 @@ impl InputBaseState<EditorMode> {
         selected: Option<usize>,
         cx: &mut Context<Self>,
     ) {
+        self.present_completion_items_anchored(
+            trigger_start_offset,
+            query,
+            items,
+            selected,
+            None,
+            cx,
+        );
+    }
+
+    /// VENDOR EDIT — [`Self::present_completion_items_selected`], hanging
+    /// the menu from buffer offset `anchor` rather than the caret.
+    pub fn present_completion_items_anchored(
+        &mut self,
+        trigger_start_offset: usize,
+        query: impl Into<String>,
+        items: Vec<CompletionItem>,
+        selected: Option<usize>,
+        anchor: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
         self.extras.context_menu_content.completion.selected = selected;
+        self.extras.context_menu_content.completion.anchor = anchor;
         self.extras
             .context_menu_content
             .completion

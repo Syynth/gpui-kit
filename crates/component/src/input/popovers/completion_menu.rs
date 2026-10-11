@@ -185,6 +185,9 @@ pub struct CompletionMenu {
     /// The list fills the popover, so without it the popover has no width
     /// of its own and falls to its minimum, cutting long rows off.
     content_width: Option<Pixels>,
+    /// VENDOR EDIT — the buffer offset the menu hangs from, when it was
+    /// opened somewhere other than the caret.
+    anchor: Option<usize>,
     editor: WeakEntity<EditorState>,
     list: Entity<ListState<ContextMenuDelegate>>,
     open: bool,
@@ -231,6 +234,7 @@ impl CompletionMenu {
             Self {
                 offset: 0,
                 content_width: None,
+                anchor: None,
                 editor: editor.downgrade(),
                 list,
                 open: false,
@@ -335,9 +339,11 @@ impl CompletionMenu {
         offset: usize,
         items: impl Into<Vec<CompletionItem>>,
         selected: usize,
+        anchor: Option<usize>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.anchor = anchor;
         let items = items.into();
         let selected = selected.min(items.len().saturating_sub(1));
         self.offset = offset;
@@ -365,6 +371,15 @@ impl CompletionMenu {
     fn origin(&self, cx: &App) -> Option<Point<Pixels>> {
         let editor = self.editor.upgrade()?;
         let editor = editor.read(cx);
+        // An anchored menu hangs from its anchor's line, whatever the caret
+        // does — `range_to_bounds` answers on screen, scroll applied.
+        if let Some(anchor) = self.anchor {
+            let at = editor.range_to_bounds(&(anchor..anchor))?;
+            return Some(
+                at.origin - editor.input_bounds().origin
+                    + Point::new(-px(4.), at.size.height + px(4.)),
+            );
+        }
         let Some((cursor_bounds, line_height)) = editor.cursor_layout() else {
             return None;
         };
